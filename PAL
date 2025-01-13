@@ -1,0 +1,113 @@
+const { Client, GatewayIntentBits } = require('discord.js');
+const fs = require('fs');
+const path = require('path');
+
+// Utworzenie nowego klienta bota
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.MessageContent
+  ]
+});
+
+// Wczytanie czarnej listy z pliku JSON
+let blacklist = new Set();
+
+// Funkcja wczytująca czarną listę
+function loadBlacklist() {
+  try {
+    const data = fs.readFileSync(path.join(__dirname, 'blacklist.json'), 'utf8');
+    blacklist = new Set(JSON.parse(data));
+  } catch (err) {
+    console.error('Nie udało się wczytać czarnej listy:', err);
+  }
+}
+
+// Funkcja zapisująca czarną listę
+function saveBlacklist() {
+  try {
+    fs.writeFileSync(path.join(__dirname, 'blacklist.json'), JSON.stringify(Array.from(blacklist), null, 2));
+  } catch (err) {
+    console.error('Nie udało się zapisać czarnej listy:', err);
+  }
+}
+
+// Wczytanie czarnej listy przy starcie bota
+loadBlacklist();
+
+// Wydarzenie, które uruchamia się, gdy bot jest gotowy
+client.once('ready', () => {
+  console.log(`Bot PAL jest gotowy. Zalogowano jako ${client.user.tag}`);
+});
+
+// Wydarzenie, które uruchamia się, gdy nowy użytkownik dołącza do serwera
+client.on('guildMemberAdd', async (member) => {
+  if (blacklist.has(member.id)) {
+    try {
+      console.log(`Użytkownik ${member.user.tag} jest na czarnej liście. Banowanie...`);
+      await member.ban({ reason: 'Na globalnej czarnej liście' });
+      console.log(`Zbanowano użytkownika ${member.user.tag}.`);
+    } catch (error) {
+      console.error('Błąd podczas banowania użytkownika:', error);
+    }
+  }
+});
+
+// Komenda do dodania użytkownika do czarnej listy (tylko dla administratorów)
+client.on('messageCreate', async (message) => {
+  if (!message.guild || message.author.bot) return;
+
+  // Sprawdzenie, czy użytkownik ma uprawnienia administratora
+  if (message.content.startsWith('!blacklist')) {
+    if (!message.member.permissions.has('ADMINISTRATOR')) {
+      return message.reply('Nie masz odpowiednich uprawnień do użycia tej komendy.');
+    }
+
+    const args = message.content.split(' ');
+    const userId = args[1];
+
+    if (!userId) {
+      return message.reply('Musisz podać ID użytkownika.');
+    }
+
+    // Sprawdzamy, czy użytkownik już jest na czarnej liście
+    if (blacklist.has(userId)) {
+      return message.reply('Ten użytkownik jest już na czarnej liście.');
+    }
+
+    // Dodajemy użytkownika do czarnej listy
+    blacklist.add(userId);
+    saveBlacklist();
+
+    message.reply(`Użytkownik o ID ${userId} został dodany do czarnej listy.`);
+  }
+
+  // Komenda do usuwania użytkownika z czarnej listy (tylko dla administratorów)
+  if (message.content.startsWith('!unblacklist')) {
+    if (!message.member.permissions.has('ADMINISTRATOR')) {
+      return message.reply('Nie masz odpowiednich uprawnień do użycia tej komendy.');
+    }
+
+    const args = message.content.split(' ');
+    const userId = args[1];
+
+    if (!userId) {
+      return message.reply('Musisz podać ID użytkownika.');
+    }
+
+    // Sprawdzamy, czy użytkownik jest na czarnej liście
+    if (!blacklist.has(userId)) {
+      return message.reply('Ten użytkownik nie znajduje się na czarnej liście.');
+    }
+
+    // Usuwamy użytkownika z czarnej listy
+    blacklist.delete(userId);
+    saveBlacklist();
+
+    message.reply(`Użytkownik o ID ${userId} został usunięty z czarnej listy.`);
+  }
+});
+
+// Uruchomienie bota
+client.login('YOUR_BOT_TOKEN');
